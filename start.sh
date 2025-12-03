@@ -1,14 +1,34 @@
-#!/bin/bash
-# start.sh - start cron (daemon) then start uvicorn
+#!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure /data exists
-mkdir -p /data
+# ensure python sees the installed packages
+export PYTHONPATH=${PYTHONPATH:-/install}
 
-# Start cron daemon
-echo "[start.sh] starting cron..."
+# configure timezone (ensure /etc/localtime points to UTC)
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime || true
+export TZ=UTC
+
+# ensure directories exist
+mkdir -p /data /cron
+chmod 755 /data /cron
+
+# If a crontab file is mounted at /cron/crontab, use that
+# Else fallback to the app-provided crontab.txt
+if [ -f /cron/crontab ]; then
+  echo "Using crontab from /cron/crontab"
+  crontab /cron/crontab
+else
+  echo "Using bundled crontab (/app/crontab.txt)"
+  crontab /app/crontab.txt
+fi
+
+# Ensure cron is running (daemon)
+# Start cron in background so we can run the app in foreground
 cron
 
-# Start uvicorn (FastAPI) -- host 0.0.0.0 port 8080
-echo "[start.sh] starting uvicorn..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8080
+# Optionally, give a tiny delay to let cron start
+sleep 1
+
+# Start Flask app (keep in foreground)
+# Use python -u to avoid buffering logs
+exec python -u -m app.main

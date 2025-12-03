@@ -1,135 +1,117 @@
-# app/main.py  (Flask replacement with robust secret handling)
-from flask import Flask, jsonify
-from pathlib import Path
+from flask import Flask, request, jsonify
 import os
 import base64
-import re
-import pyotp
+from datetime import datetime
+from pathlib import Path
+
 from decrypt_seed import decrypt_seed
+from totp_utils import generate_totp_code, verify_totp_code
 
 app = Flask(__name__)
 
-ENCRYPTED_FILE = os.environ.get("ENCRYPTED_SEED_FILE", "encrypted_seed.txt")
-PRIVATE_KEY_FILE = os.environ.get("PRIVATE_KEY_FILE", "student_private.pem")
+DATA_FILE = "data/seed.txt"
+PRIVATE_KEY_FILE = "student_private.pem"
 
-def load_files():
-    enc_path = Path(ENCRYPTED_FILE)
-    pk_path = Path(PRIVATE_KEY_FILE)
-    if not enc_path.exists():
-        raise FileNotFoundError(f"{ENCRYPTED_FILE} not found")
-    if not pk_path.exists():
-        raise FileNotFoundError(f"{PRIVATE_KEY_FILE} not found")
-    return enc_path.read_text().strip(), pk_path.read_bytes()
 
-def is_base64(s: str) -> bool:
-    s = s.strip()
-    if not s:
-        return False
-    # base64 characters + possible padding and whitespace
-    if re.fullmatch(r'[A-Za-z0-9+/=\s]+', s):
-        try:
-            data = base64.b64decode(s, validate=True)
-            return len(data) >= 4
-        except Exception:
-            return False
-    return False
+def load_hex_seed():
+    """Load the decrypted seed from disk."""
+    if not os.path.exists(DATA_FILE):
+        return None
+    return Path(DATA_FILE).read_text().strip()
 
-def is_hex(s: str) -> bool:
-    s = s.strip()
-    return bool(re.fullmatch(r'[0-9a-fA-F]+', s)) and (len(s) % 2 == 0)
 
-def to_base32_from_base64(s: str) -> str:
-    b = base64.b64decode(s)
-    return base64.b32encode(b).decode('utf-8').strip('=')
-
-def to_base32_from_hex(s: str) -> str:
-    b = bytes.fromhex(s)
-    return base64.b32encode(b).decode('utf-8').strip('=')
-
-def to_base32_from_bytes_string(s: str) -> str:
-    b = s.encode('utf-8')
-    return base64.b32encode(b).decode('utf-8').strip('=')
-
-def try_generate_totp_from_seed(seed_str: str):
-    """
-    Try several interpretations of the decrypted seed and return a tuple (otp, info)
-    where info describes which method succeeded.
-    Raises ValueError if none succeed.
-    """
-    seed_original = (seed_str or "").strip()
-    # 1) try as-is
-    try:
-        otp = pyotp.TOTP(seed_original).now()
-        return otp, "raw"
-    except Exception:
-        pass
-
-    # normalize (remove whitespace, uppercase)
-    candidate = re.sub(r'\s+', '', seed_original).upper()
-    try:
-        otp = pyotp.TOTP(candidate).now()
-        return otp, "normalized"
-    except Exception:
-        pass
-
-    # handle base64 -> base32
-    try:
-        if is_base64(seed_original):
-            b32 = to_base32_from_base64(seed_original)
-            otp = pyotp.TOTP(b32).now()
-            return otp, "base64->base32"
-    except Exception:
-        pass
-
-    # handle hex -> base32
-    try:
-        if is_hex(seed_original):
-            b32 = to_base32_from_hex(seed_original)
-            otp = pyotp.TOTP(b32).now()
-            return otp, "hex->base32"
-    except Exception:
-        pass
-
-    # fallback: treat as UTF-8 bytes -> base32
-    try:
-        b32 = to_base32_from_bytes_string(seed_original)
-        otp = pyotp.TOTP(b32).now()
-        return otp, "bytes->base32"
-    except Exception:
-        pass
-
-    # all attempts failed
-    raise ValueError("secret not in a recognized format")
-
-@app.route("/health")
+@app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok"}), 200
 
-@app.route("/totp")
-def totp_endpoint():
-    # load encrypted seed and private key
-    try:
-        enc, priv = load_files()
-    except Exception as e:
-        return jsonify({"error": f"Configuration error: {e}"}), 500
 
-    # decrypt
-    try:
-        seed = decrypt_seed(enc, priv)
-    except Exception as e:
-        return jsonify({"error": f"Decryption failed: {e}"}), 500
+# -----------------------------------------------------------
+# 1️⃣ POST /decrypt-seed
+# -----------------------------------------------------------
 
-    # generate TOTP using robust detection
+@app.route("/decrypt-seed", methods=["POST"])
+def api_decrypt_seed():
     try:
-        otp, info = try_generate_totp_from_seed(seed)
-        return jsonify({"otp": otp, "method": info})
-    except ValueError as e:
-        # For debugging: don't leak private key or full seed, but include short hint
-        preview = (seed or "")[:120].replace("\n", "\\n")
-        return jsonify({"error": f"TOTP generation failed: {e}", "seed_preview": preview}), 500
+        data = request.get_json()
+        if not data or "encrypted_seed" not in data:
+            return jsonify({"error": "Missing encrypted_seed"}), 400
+
+        encrypted_seed_b64 = data["encrypted_seed"]
+
+        # Load private key
+        if not os.path.exists(PRIVATE_KEY_FILE):
+            return jsonify({"error": "Private key not found"}), 500
+
+        with open(PRIVATE_KEY_FILE, "rb") as f:
+            private_key_bytes = f.read()
+
+        try:
+            hex_seed = decrypt_seed(encrypted_seed_b64, private_key_bytes)
+        except Exception as e:
+            return jsonify({"error": f"Decryption failed: {str(e)}"}), 500
+
+        Path("data").mkdir(exist_ok=True)
+        Path(DATA_FILE).write_text(hex_seed)
+
+        return jsonify({"status": "ok"}), 200
+
     except Exception as e:
-        return jsonify({"error": f"Unexpected error generating TOTP: {e}"}), 500
+        return jsonify({"error": f"Internal error: {str(e)}"}), 500
+
+
+# -----------------------------------------------------------
+# 2️⃣ GET /generate-2fa
+# -----------------------------------------------------------
+
+@app.route("/generate-2fa", methods=["GET"])
+def api_generate_2fa():
+    try:
+        hex_seed = load_hex_seed()
+        if hex_seed is None:
+            return jsonify({"error": "Seed not decrypted yet"}), 500
+
+        code = generate_totp_code(hex_seed)
+
+        now = int(datetime.utcnow().timestamp())
+        valid_for = 30 - (now % 30)
+
+        return jsonify({
+            "code": code,
+            "valid_for": valid_for
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"TOTP generation failed: {str(e)}"}), 500
+
+
+# -----------------------------------------------------------
+# 3️⃣ POST /verify-2fa
+# -----------------------------------------------------------
+
+@app.route("/verify-2fa", methods=["POST"])
+def api_verify_2fa():
+    try:
+        data = request.get_json()
+        if not data or "code" not in data:
+            return jsonify({"error": "Missing code"}), 400
+
+        code = data["code"]
+
+        hex_seed = load_hex_seed()
+        if hex_seed is None:
+            return jsonify({"error": "Seed not decrypted yet"}), 500
+
+        is_valid = verify_totp_code(hex_seed, code)
+
+        return jsonify({"valid": is_valid}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Verification failed: {str(e)}"}), 500
+
+
+# -----------------------------------------------------------
+# Run server
+# -----------------------------------------------------------
 
 if __name__ == "__main__":
-    # Dev server (not for production)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=8080)

@@ -1,4 +1,2 @@
-# crontab.txt - install this into /etc/cron.d/pki-cron via Dockerfile
-# Run our cronjob script every minute (redirect to log for debugging)
-* * * * * root /usr/local/bin/cronjob.sh
 
+* * * * * python /app/your_script.py

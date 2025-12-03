@@ -1,43 +1,58 @@
-# Dockerfile
-FROM python:3.11-slim
+# Stage 1: Builder - install Python packages into /install
+FROM python:3.11-slim AS builder
 
-# Prevent Python from writing .pyc and buffer stdout/stderr
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /build
 
-# Install system dependencies
+# Install build deps used by some packages (cryptography etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron \
-    ca-certificates \
     build-essential \
+    libssl-dev \
+    libffi-dev \
+    cargo \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app dir
+# Copy dependency file and install to /install for copying into runtime
+COPY requirements.txt /build/requirements.txt
+RUN python -m pip install --upgrade pip \
+ && python -m pip install --no-cache-dir --target /install -r /build/requirements.txt
+
+# Stage 2: Runtime
+FROM python:3.11-slim
+
+# set timezone to UTC
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/install
+
 WORKDIR /app
 
-# Copy project files
+# Install system deps: cron and timezone data
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    cron \
+    tzdata \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ensure UTC timezone
+RUN ln -sf /usr/share/zoneinfo/UTC /etc/localtime && echo "UTC" > /etc/timezone
+
+# Copy python packages from builder
+COPY --from=builder /install /install
+
+# Copy application code
 COPY . /app
 
-# Install python deps
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Make cronjob script executable and start script
+RUN cp /app/cronjob.sh /usr/local/bin/cronjob.sh \
+ && chmod +x /usr/local/bin/cronjob.sh \
+ && chmod +x /app/start.sh \
+ && chmod 0644 /app/crontab.txt
 
-# Ensure scripts are executable
-RUN chmod +x /usr/local/bin/cronjob.sh || true
-RUN chmod +x /app/start.sh || true
+# Create mount points
+VOLUME [ "/data", "/cron" ]
 
-# Ensure /data exists and owned by root (container will write logs)
-RUN mkdir -p /data && chown root:root /data
-
-# Install crontab file into /etc/cron.d and set permissions
-COPY crontab.txt /etc/cron.d/pki-cron
-RUN chmod 0644 /etc/cron.d/pki-cron
-# apply cron job
-RUN crontab /etc/cron.d/pki-cron || true
-
-# Expose port
+# Expose app port
 EXPOSE 8080
 
-# Use start.sh to run cron and uvicorn
+# Start cron and http server (start.sh will handle crontab install)
 CMD ["/bin/bash", "/app/start.sh"]
