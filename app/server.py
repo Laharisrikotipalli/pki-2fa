@@ -110,3 +110,75 @@ def verify_2fa():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
 
+# ---------------------------
+#         TOTP ENDPOINT
+# ---------------------------
+@app.route("/totp", methods=["GET"])
+def totp_route():
+    """
+    Returns the current TOTP as JSON: {"totp": "123456"}.
+    Order:
+      1) Read plaintext seed from SEED_FILE (/app/data/seed.txt)
+      2) Read /app/seed.txt
+      3) Read /app/encrypted_seed.txt and decrypt using /app/keys/student_private.pem
+    """
+    # helper paths
+    alt_plain = "/app/seed.txt"
+    enc_path = "/app/encrypted_seed.txt"
+    priv_key_path = "/app/keys/student_private.pem"
+
+    # 1) try SEED_FILE
+    seed = None
+    try:
+        if os.path.isfile(SEED_FILE):
+            with open(SEED_FILE, "r") as f:
+                s = f.read().strip()
+                if s:
+                    seed = s
+    except Exception as e:
+        app.logger.debug("Could not read SEED_FILE: %s", e)
+
+    # 2) try alt plaintext
+    if not seed:
+        try:
+            if os.path.isfile(alt_plain):
+                with open(alt_plain, "r") as f:
+                    s = f.read().strip()
+                    if s:
+                        seed = s
+        except Exception as e:
+            app.logger.debug("Could not read alt_plain seed: %s", e)
+
+    # 3) try encrypted seed + decrypt
+    if not seed:
+        try:
+            if os.path.isfile(enc_path) and os.path.isfile(priv_key_path):
+                with open(enc_path, "r") as f:
+                    enc = f.read().strip()
+                with open(priv_key_path, "rb") as f:
+                    priv_bytes = f.read()
+                # decrypt_seed imported above takes (encrypted_b64, private_key_bytes)
+                plaintext = decrypt_seed(enc, priv_bytes)
+                if plaintext:
+                    seed = plaintext.strip()
+                    # optionally persist decrypted seed for future calls
+                    try:
+                        os.makedirs(os.path.dirname(SEED_FILE), exist_ok=True)
+                        with open(SEED_FILE, "w") as f:
+                            f.write(seed)
+                    except Exception as e:
+                        app.logger.debug("Failed to persist decrypted seed: %s", e)
+        except Exception as e:
+            app.logger.exception("Failed to decrypt encrypted_seed.txt: %s", e)
+            return jsonify({"error": "failed to decrypt encrypted_seed", "detail": str(e)}), 500
+
+    if not seed:
+        return jsonify({"error": "seed not found; cannot generate TOTP"}), 500
+
+    # generate totp using your existing generator
+    try:
+        code = generate_totp(seed)
+        return jsonify({"totp": code}), 200
+    except Exception as e:
+        app.logger.exception("Failed to generate TOTP: %s", e)
+        return jsonify({"error": "failed to generate totp", "detail": str(e)}), 500
