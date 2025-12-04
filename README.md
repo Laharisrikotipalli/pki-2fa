@@ -2,51 +2,46 @@
 Built with Python, Flask, RSA-OAEP, TOTP, Cron & Docker
 
 This project implements a fully secure Public Key Infrastructure (PKI) based Two-Factor Authentication (2FA) microservice.
-It supports RSA-OAEP encrypted seed decryption, TOTP generation, 2FA verification, cron-based logging, and persistent secure storage — all inside a Docker container.
-
-This microservice is designed according to the official assignment specification and meets all functional and security requirements.
+It supports RSA-OAEP encrypted seed decryption, TOTP generation, verification, cron-based logging, and secure storage — all inside Docker.
 
 📌 Features
 🔐 1. RSA-OAEP Seed Decryption
 
-Accepts an encrypted seed from instructor API
+Accepts encrypted seed from instructor API
 
 Decrypts using student_private.pem
 
-Persists decrypted seed securely to /app/keys/seed.txt
+Saves decrypted seed to /app/keys/seed.txt
 
 ⏱ 2. TOTP Generation
 
 Implements RFC 6238
 
-Generates 6-digit time-based codes every 30 seconds
+Generates 6-digit codes every 30 seconds
 
-Uses SHA-1 hashing as required
+Uses SHA-1 hashing
 
 🧪 3. TOTP Verification
 
-Validates user-provided TOTP code
+Validates user-provided TOTP
 
-Supports ±1 time-step clock drift
+Supports ±1 time-step drift
 
 🕒 4. Cron-Based Code Logging
 
-Every 1 minute, a cron job generates the current TOTP code
+Runs every minute
 
-Logs results to /app/cron/last_code.txt
-
-Demonstrates correct cron scheduling inside Docker
+Logs TOTP into /app/cron/last_code.txt
 
 📦 5. Fully Containerized
 
-Runs on Python 3.11 Slim
+Python 3.11 Slim
 
-Exposes microservice API on port 8080
+Runs on port 8080
 
-Uses Docker volume for seed persistence after container restarts
+Persistent seed using Docker volumes
 
 🗂 Repository Structure
-
 pki-2fa/
 │── Dockerfile
 │── docker-compose.yml
@@ -78,7 +73,7 @@ pki-2fa/
 GET /health
 
 
-Returns:
+Response:
 
 { "service": "pki-2fa", "status": "ok" }
 
@@ -86,12 +81,12 @@ Returns:
 POST /decrypt-seed
 
 
-Request body:
+Body:
 
-{ "encrypted_seed": "<base64-seed>" }
+{ "encrypted_seed": "<base64>" }
 
 
-Successful response:
+Response:
 
 { "status": "ok", "message": "Seed decrypted and persisted" }
 
@@ -112,81 +107,65 @@ Body:
 { "totp": "123456" }
 
 
-Response (valid):
+Valid:
 
 { "valid": true }
 
 
-Response (invalid):
+Invalid:
 
 { "valid": false }
 
 🧱 Docker Setup
-Build & Start
+Build & Run
 docker compose up -d --build
 
-Check logs:
+Check logs
 docker compose logs --tail=100
 
-Test the API:
+Test endpoints
 curl http://localhost:8080/health
 curl http://localhost:8080/generate-2fa
 
 🕒 Cron Job
 
-Cron file (cron/2fa-cron):
+Cron file:
 
 * * * * * root cd /app && /usr/local/bin/python3 scripts/log_2fa_cron.py >> /app/cron/last_code.txt 2>&1
 
 
-To verify cron output:
+Check output:
 
 docker exec -it <container> tail -n 20 /app/cron/last_code.txt
 
 🔑 Key Files
 File	Purpose
-student_private.pem	Required for decrypting the seed & signing commit hash
-student_public.pem	Submitted to the instructor
-instructor_public.pem	Used to encrypt commit signature
+student_private.pem	Required for decryption & commit signature
+student_public.pem	Submitted to instructor
+instructor_public.pem	Encrypts commit signature
 
-⚠️ These keys are for assignment use only and must not be reused elsewhere.
+⚠️ These keys are ONLY for course use. Do NOT reuse elsewhere.
 
 📝 Submission Artifacts
 
-Your repo contains all required files:
-
-encrypted_seed.txt (single-line base64 string)
+encrypted_seed.txt
 
 encrypted_commit_signature.txt
 
-keys/student_public.pem
+student_public.pem
 
-keys/student_private.pem (required by assignment)
+student_private.pem (required)
 
-Full source code
+All source files
 
-Dockerfile + docker-compose.yml
+Docker + Cron setup
 
-Cron configuration
-
-✔️ How to Verify Before Submission
-
-Run:
-
+✔️ Verify Before Submission
 curl http://localhost:8080/health
 curl http://localhost:8080/generate-2fa
 curl -X POST http://localhost:8080/verify-2fa -d '{"totp":"123456"}' -H "Content-Type: application/json"
-
-
-Check cron:
-
 docker exec -it $(docker ps -q) tail -n 20 /app/cron/last_code.txt
-
-
-Restart test:
-
 docker compose restart
-curl http://localhost:8080/generate-2fa
 
 🧑‍💻 Author
 
