@@ -1,8 +1,13 @@
 from flask import Flask, request, jsonify
 import os
-from .decrypt_seed import decrypt_seed
-from .totp_generator import generate_totp
-import sys, json
+import sys
+import json
+
+# project imports (use the relative imports you already had)
+from .decrypt_seed import decrypt_seed      # decrypt_seed(encrypted_b64, private_key_bytes) -> plaintext seed (str)
+from .totp_generator import generate_totp   # generate_totp(seed_str) -> 6-digit string
+
+# debug print (kept from your original)
 print("DEBUG: got request body:", file=sys.stderr)
 ##COMMENTED_BY_FIX print(json.dumps(request.get_json()), file=sys.stderr)
 sys.stderr.flush()
@@ -28,87 +33,53 @@ def health():
 @app.route("/decrypt-seed", methods=["POST"])
 def decrypt_seed_route():
     """
-    1. Read incoming encrypted seed (base64)
+    1. Read incoming encrypted seed (base64) from JSON body: {"encrypted_seed": "..."}
     2. Decrypt using student's private key (RSA-OAEP-SHA256)
-    3. Save plaintext seed to /app/data/seed.txt (Docker volume)
+    3. Save plaintext seed to SEED_FILE (/app/data/seed.txt)
     """
-    data = request.get_json()
-    encrypted_seed = data.get("encrypted_seed")
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
+
+    encrypted_seed = data.get("encrypted_seed") if isinstance(data, dict) else None
 
     if not encrypted_seed:
         return jsonify({"error": "Missing encrypted_seed"}), 400
 
-    # Load student private key
-    with open("/app/keys/student_private.pem", "rb") as f:
-        private_key = f.read()
+    # Load student private key (bytes)
+    priv_path = "/app/keys/student_private.pem"
+    if not os.path.isfile(priv_path):
+        return jsonify({"error": "private key not found on server", "path": priv_path}), 500
+
+    try:
+        with open(priv_path, "rb") as f:
+            private_key_bytes = f.read()
+    except Exception as e:
+        app.logger.exception("Failed to read private key: %s", e)
+        return jsonify({"error": "failed to read private key", "detail": str(e)}), 500
 
     # Decrypt
     try:
-        plaintext_seed = decrypt_seed(encrypted_seed, private_key)
+        plaintext_seed = decrypt_seed(encrypted_seed, private_key_bytes)
     except Exception as e:
-        return jsonify({"error": f"Decryption failed: {str(e)}"}), 400
+        app.logger.exception("Decryption failed: %s", e)
+        return jsonify({"error": "Decryption failed", "detail": str(e)}), 400
 
-    # Ensure data folder exists
-    os.makedirs("/app/data", exist_ok=True)
+    if not plaintext_seed:
+        return jsonify({"error": "Decryption returned empty seed"}), 500
 
-    # Write seed to volume
-    with open(SEED_FILE, "w") as f:
-        f.write(plaintext_seed)
+    # Ensure data folder exists and persist seed
+    try:
+        os.makedirs(os.path.dirname(SEED_FILE), exist_ok=True)
+        with open(SEED_FILE, "w") as f:
+            f.write(plaintext_seed.strip())
+    except Exception as e:
+        app.logger.exception("Failed to write seed to disk: %s", e)
+        return jsonify({"error": "failed to persist seed", "detail": str(e)}), 500
 
-    return jsonify({"status": "ok", "message": "Seed saved"}), 200
+    return jsonify({"status": "ok", "message": "Seed decrypted and stored"}), 200
 
-
-# ---------------------------
-#   GENERATE TOTP ENDPOINT
-# ---------------------------
-@app.route("/generate-2fa", methods=["GET"])
-def generate_2fa():
-    """
-    1. Load seed from disk
-    2. Generate current TOTP code
-    """
-    if not os.path.exists(SEED_FILE):
-        return jsonify({"error": "Seed not initialized"}), 400
-
-    with open(SEED_FILE, "r") as f:
-        seed = f.read().strip()
-
-    code = generate_totp(seed)
-    return jsonify({"code": code}), 200
-
-
-# ---------------------------
-#   VERIFY TOTP ENDPOINT
-# ---------------------------
-@app.route("/verify-2fa", methods=["POST"])
-def verify_2fa():
-    """
-    1. Read code from request
-    2. Load seed from disk
-    3. Generate expected code and compare
-    """
-    data = request.get_json()
-    provided = data.get("code")
-
-    if not provided:
-        return jsonify({"error": "Missing code"}), 400
-
-    if not os.path.exists(SEED_FILE):
-        return jsonify({"error": "Seed not initialized"}), 400
-
-    with open(SEED_FILE, "r") as f:
-        seed = f.read().strip()
-
-    expected = generate_totp(seed)
-
-    return jsonify({"valid": provided == expected}), 200
-
-
-# ---------------------------
-#     ENTRY POINT
-# ---------------------------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
 
 # ---------------------------
 #         TOTP ENDPOINT
@@ -122,13 +93,13 @@ def totp_route():
       2) Read /app/seed.txt
       3) Read /app/encrypted_seed.txt and decrypt using /app/keys/student_private.pem
     """
-    # helper paths
     alt_plain = "/app/seed.txt"
     enc_path = "/app/encrypted_seed.txt"
     priv_key_path = "/app/keys/student_private.pem"
 
-    # 1) try SEED_FILE
     seed = None
+
+    # 1) try SEED_FILE
     try:
         if os.path.isfile(SEED_FILE):
             with open(SEED_FILE, "r") as f:
@@ -157,11 +128,10 @@ def totp_route():
                     enc = f.read().strip()
                 with open(priv_key_path, "rb") as f:
                     priv_bytes = f.read()
-                # decrypt_seed imported above takes (encrypted_b64, private_key_bytes)
                 plaintext = decrypt_seed(enc, priv_bytes)
                 if plaintext:
                     seed = plaintext.strip()
-                    # optionally persist decrypted seed for future calls
+                    # persist for future calls
                     try:
                         os.makedirs(os.path.dirname(SEED_FILE), exist_ok=True)
                         with open(SEED_FILE, "w") as f:
@@ -182,6 +152,11 @@ def totp_route():
     except Exception as e:
         app.logger.exception("Failed to generate TOTP: %s", e)
         return jsonify({"error": "failed to generate totp", "detail": str(e)}), 500
+
+
+# ---------------------------
+#        MAIN GUARD
+# ---------------------------
 if __name__ == "__main__":
     # bind to 0.0.0.0 so the container port maps to host
     app.run(host="0.0.0.0", port=8080)
