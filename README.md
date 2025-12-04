@@ -1,5 +1,5 @@
 ## 🚀 Running the Service  
-### 👉 Copy all commands below at once
+
 
 ```bash
 # 1. Build & Run (Docker Compose)
