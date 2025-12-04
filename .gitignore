@@ -17,3 +17,4 @@ __pycache__/
 *.tmp
 
 app/server.py.bak
+keys/student_private.pem
