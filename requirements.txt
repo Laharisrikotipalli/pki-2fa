@@ -1,4 +1,0 @@
-pyotp
-cryptography
-Flask
-pyjwt
