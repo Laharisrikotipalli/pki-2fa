@@ -1,0 +1,2 @@
+* * * * * cd /app && /usr/local/bin/python /app/cron_write_totp.py >> /var/log/cron.log 2>&1
+# (Make sure there is a blank line below this)
