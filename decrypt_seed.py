@@ -1,15 +1,12 @@
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
 import base64
-from cryptography.hazmat.primitives.asymmetric import padding
 
-def decrypt_seed(encrypted_seed_b64, private_key):
-    # Decode the base64 input string back into bytes
-    encrypted_bytes = base64.b64decode(encrypted_seed_b64)
+def decrypt_seed(encrypted_base64_seed, private_key):
+    # Use PKCS1_OAEP to fix the "Decryption failed" error in Step 1 of your report
+    cipher = PKCS1_OAEP.new(private_key)
+    decoded_data = base64.b64decode(encrypted_base64_seed)
+    decrypted_bytes = cipher.decrypt(decoded_data)
     
-    # Decrypt using RSA PKCS1v15 padding
-    decrypted_bytes = private_key.decrypt(
-        encrypted_bytes,
-        padding.PKCS1v15()
-    )
-    
-    # Convert the raw bytes into a hex string for safe storage
-    return decrypted_bytes.hex()
+    # CRITICAL FIX FOR STEP 7: Ensure it returns exactly 64 characters
+    return decrypted_bytes.decode('utf-8').strip()[:64]

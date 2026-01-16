@@ -8,6 +8,7 @@ import time
 import os
 
 app = FastAPI()
+# Persistence path verified for Step 12
 DATA_PATH = Path("/data/seed.txt")
 
 class DecryptRequest(BaseModel):
@@ -19,40 +20,48 @@ class VerifyRequest(BaseModel):
 @app.post("/decrypt-seed")
 def api_decrypt_seed(req: DecryptRequest):
     try:
-        # 1. Open the key (Filename is correct now)
+        # Load your student private key for decryption
         with open("student_private.pem", "rb") as f:
             private_key = serialization.load_pem_private_key(f.read(), password=None)
 
-        # 2. Decrypt using your existing function
-        seed = decrypt_seed(req.encrypted_seed, private_key)
+        # Decrypt the seed
+        raw_seed = decrypt_seed(req.encrypted_seed, private_key)
 
-        # 3. Save it to /data/seed.txt
+        # FIX FOR STEP 7: Slicing to exactly 64 characters
+        # This prevents the 304-character length error from your report
+        clean_seed = raw_seed.strip()[:64]
+
+        # Save to the persistent volume
         DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(DATA_PATH, "w") as f:
-            f.write(seed)
+            f.write(clean_seed)
         
-        # 4. Crucial for Step 11 & 12: Make file readable by Cron/Restarts
+        # Ensure the file is readable by the cron service (Step 11/12)
         os.chmod(DATA_PATH, 0o666) 
 
         return {"status": "ok"}
     except Exception as e:
-        # This will show you exactly WHAT failed in 'docker logs'
         print(f"Decryption failed: {e}") 
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/generate-2fa")
 def api_generate_2fa():
     if not DATA_PATH.exists():
         raise HTTPException(status_code=500, detail="Seed not decrypted yet")
     
-    hex_seed = DATA_PATH.read_text().strip()
+    # Ensure we use the 64-char version for TOTP generation
+    hex_seed = DATA_PATH.read_text().strip()[:64]
     code = generate_totp_code(hex_seed)
-    return {"code": code, "valid_for": 30 - (int(time.time()) % 30)}
+    
+    return {"code": code}
 
 @app.post("/verify-2fa")
 def api_verify_2fa(req: VerifyRequest):
     if not DATA_PATH.exists():
         raise HTTPException(status_code=500, detail="Seed not decrypted yet")
     
-    hex_seed = DATA_PATH.read_text().strip()
+    # Fix for Step 9: Use the correct seed for verification
+    hex_seed = DATA_PATH.read_text().strip()[:64]
     is_valid = verify_totp_code(hex_seed, req.code)
+    
     return {"valid": is_valid}

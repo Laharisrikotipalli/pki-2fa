@@ -3,7 +3,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 # 1. Update this with your latest commit hash (Step 2 below)
-commit_id = "de47f1f62815fe8ad1be4257bfad61c3a93a443f".strip()
+commit_id = "1a448843c62fb451be6986385b1d134ff0e5909b".strip()
 
 def sign_my_commit():
     try:
