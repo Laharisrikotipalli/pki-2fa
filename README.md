@@ -71,6 +71,6 @@ Bash
 docker exec -it pki-2fa-app-1 cat /data/cron.log
 ```
 ---
-***Developer:*** Lahari Srikotipalli
+***Developer:*** Lahari Sri Kotipalli
 
 ***Student ID:*** 23MH1A05I0
