@@ -1,43 +1,75 @@
-# PKI-based 2FA Microservice
+# Secure PKI & TOTP Authentication Microservice
 
-A secure, containerized backend service that implements **Public Key Infrastructure (PKI)** for seed exchange and **Time-based One-Time Password (TOTP)** for two-factor authentication. This project was developed as part of the Global Placement Partner Network program [cite: 2025-09-30].
+A high-performance, containerized microservice designed for secure seed exchange and authentication. The system leverages **Public Key Infrastructure (PKI)** for encrypted seed transmission and the **Time-based One-Time Password (TOTP)** algorithm for multi-factor authentication.
 
-## 🚀 Final Submission Status: 100/100 Fixes
-This version addresses all previous evaluation feedback:
-- **Step 1 (Commit Proof)**: Included `instructor_public.pem` in root.
-- **Step 7 (Seed Length)**: Implemented slicing logic to ensure exactly **64 characters**.
-- **Step 11 (Cron Format)**: Automated logging with mandatory **ISO Timestamp - 2FA Code** format.
-- **Step 12 (Persistence)**: Docker volume mapping to `/data` for seed and log retention.
+---
 
-## 🛠️ Technical Stack
-- **Framework**: FastAPI (Python 3.11)
-- **Security**: RSA (Cryptography library), PyOTP
-- **Deployment**: Docker & Docker Compose
-- **Scheduling**: Linux Cron service
+##  System Architecture
+The microservice is built on a decoupled architecture ensuring security at rest and in transit:
+1. **Asymmetric Decryption**: Uses RSA-2048 to decrypt incoming authentication seeds.
+2. **Seed Normalization**: Implements strict 64-character hex slicing to maintain compatibility with standard TOTP generators.
+3. **Automated Background Tasks**: A Linux-based cron service handles high-frequency logging of authentication codes.
+4. **Data Persistence**: Docker volume mapping ensures that critical authentication data survives container lifecycles.
 
-## 📁 Project Structure
-- `main.py`: FastAPI endpoints for seed decryption and TOTP generation.
-- `cron_write_totp.py`: Background script for automated 2FA logging.
-- `instructor_public.pem`: Public key for commit verification.
-- `Dockerfile`: Multi-service setup (Cron + Uvicorn).
+---
 
-## 📡 API Endpoints
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/decrypt-seed` | Decrypts RSA seed and saves 64-chars to `/data/seed.txt`. |
-| `GET` | `/generate-2fa` | Generates the current 6-digit TOTP code. |
-| `POST` | `/verify-2fa` | Validates a user-provided TOTP code. |
+## Technical Specifications
+- **Backend Framework**: FastAPI (Python 3.11)
+- **Security Primitives**: RSA (OAEP Padding), SHA-256
+- **MFA Protocol**: TOTP (RFC 6238)
+- **Infrastructure**: Docker, Docker Compose, Linux Cron
 
-## 📸 Proof of Work
-Visual evidence of the working system can be found in the `/screenshots` folder:
-1. `1_Decrypted_Seed_Length.png`: Verified 64-character seed.
-2. `2_Automated_Cron_Logs.png`: Verified timestamped log format.
-3. `3_API_TOTP_Response.png`: Verified 6-digit API output.
+----
 
-## ⚙️ Installation
-```bash
-# Clone the repository
-git clone [https://github.com/Laharisrikotipalli/pki-2fa.git](https://github.com/Laharisrikotipalli/pki-2fa.git)
+##  Repository Structure
+- `main.py`: Primary API gateway handling decryption and verification.
+- `cron_write_totp.py`: Background automation script for logging 2FA states.
+- `instructor_public.pem`: Public certificate used for system-wide commit verification.
+- `Dockerfile`: Multi-process container configuration.
+- `docker-compose.yml`: Infrastructure-as-Code for persistent storage and networking.
 
-# Build and Run
+----
+
+## API Reference
+
+### 1. Seed Decryption
+`POST /decrypt-seed`
+- **Purpose**: Receives an RSA-encrypted seed, decrypts it using the private key, and persists exactly 64 characters to protected storage.
+- **Payload**: `{"encrypted_seed": "BASE64_STRING"}`
+
+### 2. TOTP Generation
+`GET /generate-2fa`
+- **Purpose**: Generates and returns the current 6-digit authentication code in real-time.
+
+### 3. Verification
+`POST /verify-2fa`
+- **Purpose**: Validates a user-submitted code against the current server-side seed.
+
+---
+
+##  Proof of Implementation
+The `/screenshots` directory contains validated evidence of the system's operational state:
+- **Seed Validation**: Verification of the 64-character hex seed integrity.
+- **Service Logs**: Automated cron logs featuring ISO-8601 timestamps and 2FA code history.
+- **API Response**: Successful 6-digit code generation via REST client.
+---
+##  Getting Started
+1. **Clone the repository**:
+   ```bash
+   git clone [https://github.com/Laharisrikotipalli/pki-2fa.git](https://github.com/Laharisrikotipalli/pki-2fa.git)
+**Launch the Microservice:**
+
+Bash
+```
 docker compose up --build -d
+```
+**Verify Background Logs:**
+
+Bash
+```
+docker exec -it pki-2fa-app-1 cat /data/cron.log
+```
+---
+***Developer:*** Lahari Srikotipalli
+
+***Student ID:*** 23MH1A05I0
