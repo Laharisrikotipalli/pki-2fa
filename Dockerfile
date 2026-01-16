@@ -1,26 +1,18 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
-# Install system dependencies for cron
-RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
+# Install cron
+RUN apt-get update && apt-get install -y cron
 
-# Set the working directory inside the container
 WORKDIR /app
+COPY . /app
 
-# Copy and install Python dependencies
-COPY requirements.txt .
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all project files into the container
-COPY . .
+# Setup the Cron Job
+RUN echo "* * * * * root /usr/local/bin/python /app/cron_write_totp.py >> /data/cron.log 2>&1" > /etc/cron.d/totp-cron
+RUN chmod 0644 /etc/cron.d/totp-cron
+RUN touch /etc/default/locale # Required for some cron versions
 
-# 1. Load the cronjob file into the system crontab
-RUN crontab cronjob
-
-# 2. Fix potential Windows line endings and make the script executable
-RUN sed -i 's/\r$//' start.sh && chmod +x start.sh
-
-# Open the port for FastAPI
-EXPOSE 8080
-
-# Execute the startup script
-CMD ["./start.sh"]
+# Start both cron and the FastAPI app
+CMD ["sh", "-c", "cron && uvicorn main:app --host 0.0.0.0 --port 8080"]

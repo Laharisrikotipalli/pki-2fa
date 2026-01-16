@@ -1,48 +1,14 @@
-import base64
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import padding
+import requests
 
-def test_decryption():
-    try:
-        # 1. Load the private key (This is where you failed Step 1)
-        with open("student_private.pem", "rb") as key_file:
-            private_key = serialization.load_pem_private_key(
-                key_file.read(),
-                password=None
-            )
-        print("✅ SUCCESS: Private Key loaded (Step 1 markers removed).")
+# The long string you received from the instructor API
+encrypted_seed = "cVgmBdIVGI9Z9kUJ6tK7wdX/1De5JMrtEpjVXyVEecJOMqwTEHg0DPFxhoneExqCosQE7yaLrZxXJ4HDwC3YNqFdtr3SxjC9Cq7LeA2TbLkecWX5xueQO4JKd6HVqNSbXV6IJ7RMKS70j9VzhwwDoFrF50Cm+Nvz1NK6v7n62gMZbfzpaOczTeQayGUmSpKHoO46mlrlJme8/hciHG7GoFfEeZF/V93uUqztTrxZezPs8IDws0w3mNGtjZhhEYNhDvw4QsOXiyT1QpNOQyggFXrceASDDDasNcfKCKypb4Mw/6xDwUjiYTYybta9WnTMm8blshzQUUuk3k/t3cYhdx3dRyuXFced8Hj8ACz99s5HwevsmRPWJ6aA3d3k2Fk+bBUP2oNEEXL2H+jwAJicmARNk6QVa9hMQiLwang5phPm+f5ib6G7p/AMxCczQz2NeKX9m4048vsuxQZFzCJyUuCot2HkfhWlKsZh6I+rN0a9oOKSy0f5YvTkSPd2yz8KJ981P+dza9D7shOlN+604QmP51LSX4d0Ybt6gQCS3q4kyy7hQX3+NRKWRfeI9GOjVlw99DjRWfPBC3CF4F4zuC9SPmTsr6+b4FpI3UlaL0lTFfNFc2NH6zo7LSM/p6UAZZ5vwQ4lPntue2YvC59x9JzuLFVYLbTUXsP3vYO1WwA="
 
-        # 2. Simulate the Decryption logic (This is Step 6)
-        # We'll use the public key to make a test message
-        public_key = private_key.public_key()
-        message = b"test_seed_123"
-        
-        # Encrypting to test
-        ciphertext = public_key.encrypt(
-            message,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
+url = "http://localhost:8080/decrypt-seed"
+payload = {"encrypted_seed": encrypted_seed}
 
-        # Decrypting (The logic you need in main.py)
-        decrypted = private_key.decrypt(
-            ciphertext,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-        
-        if decrypted == message:
-            print("✅ SUCCESS: Decryption logic works with OAEP-SHA256.")
-            
-    except Exception as e:
-        print(f"❌ FAIL: {e}")
-        print("\nPossible fix: Check for '<<<<' in your pem file or update your padding to OAEP-SHA256.")
+response = requests.post(url, json=payload)
 
-if __name__ == "__main__":
-    test_decryption()
+if response.status_code == 200:
+    print("Success! Response:", response.json())
+else:
+    print(f"Error {response.status_code}: {response.text}")
