@@ -54,13 +54,14 @@ The `/screenshots` directory contains validated evidence of the system's operati
 - **API Response**: Successful 6-digit code generation via REST client.
 ---
 ##  Getting Started
-1. **Clone the repository**:
-   ```bash
+**Clone the repository**:
+  ``` bash
    git clone (https://github.com/Laharisrikotipalli/pki-2fa.git)
-**Launch the Microservice:**
-
-Bash
 ```
+**Launch the Microservice:**
+```
+Bash
+
 docker compose up --build -d
 ```
 **Verify Background Logs:**
